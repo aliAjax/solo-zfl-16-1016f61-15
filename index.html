@@ -20,6 +20,12 @@
         </div>
       </header>
 
+      <nav class="view-tabs" aria-label="工作台切换">
+        <button type="button" class="tab-btn active" data-view="typeset">排版工坊</button>
+        <button type="button" class="tab-btn" data-view="proof">校字台</button>
+      </nav>
+
+      <div id="typesetView" class="view">
       <section class="settings-bar" aria-label="版面设置">
         <label>
           纸张
@@ -95,6 +101,101 @@
           <div id="draftList" class="draft-list"></div>
         </aside>
       </section>
+      </div>
+
+      <div id="proofView" class="view" hidden>
+        <section class="proof-head panel">
+          <div>
+            <p class="eyebrow">原稿 · 校样逐处对读</p>
+            <h2 class="proof-title">校字台</h2>
+          </div>
+          <div id="proofStatusLine" class="proof-status">尚未对读</div>
+        </section>
+
+        <section class="proof-inputs">
+          <div class="panel">
+            <div class="panel-head"><h2>原稿</h2><span id="origCount">0字</span></div>
+            <textarea id="origText" class="proof-textarea" maxlength="800" placeholder="粘贴原稿正文，例如：山月照花影"></textarea>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>校样</h2><span id="revCount">0字</span></div>
+            <textarea id="revText" class="proof-textarea" maxlength="800" placeholder="粘贴校样正文，例如：山月照松影"></textarea>
+          </div>
+        </section>
+
+        <section class="proof-controls panel">
+          <button type="button" id="pickStartBtn" class="mini-pick">起始格：<strong id="startLabel">第1行第1列</strong></button>
+          <label class="inline-check">
+            <input type="checkbox" id="ignoreSpace" checked />
+            对读时忽略空白
+          </label>
+          <button type="button" id="compareBtn" class="primary">开始对读</button>
+          <button type="button" id="resetProofBtn">重新对读</button>
+          <span id="compareHint" class="proof-hint">对读后，每处差异可单独保留原稿或采用校样。</span>
+        </section>
+
+        <section class="proof-workspace">
+          <div class="proof-main">
+            <div id="diffSummary" class="diff-summary" hidden></div>
+            <div class="panel">
+              <div class="panel-head">
+                <h2>逐处对读</h2>
+                <div class="filter-strip" id="diffFilter" role="tablist">
+                  <button type="button" class="filter-btn active" data-filter="all">全部</button>
+                  <button type="button" class="filter-btn" data-filter="pending">未决</button>
+                  <button type="button" class="filter-btn" data-filter="diff">差异</button>
+                  <button type="button" class="filter-btn" data-filter="same">相同字</button>
+                </div>
+              </div>
+              <div id="pairList" class="pair-list">
+                <p class="empty">粘贴原稿与校样后点击「开始对读」。</p>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-head">
+                <h2>落版前核对</h2>
+                <button type="button" id="preflightBtn">重新核对</button>
+              </div>
+              <div id="preflightList" class="preflight-list">
+                <p class="empty">对读并裁决差异后，落版前在此统一核对。</p>
+              </div>
+            </div>
+          </div>
+
+          <aside class="proof-side">
+            <div class="panel">
+              <div class="panel-head"><h2>版面格</h2><span id="proofBoardHint">同色框表示对应格</span></div>
+              <div id="proofStage" class="stage proof-stage postcard"></div>
+              <div class="board-legend">
+                <span><i class="lg lg-start"></i>起始</span>
+                <span><i class="lg lg-same"></i>相同</span>
+                <span><i class="lg lg-sub"></i>换字</span>
+                <span><i class="lg lg-del"></i>缺字</span>
+                <span><i class="lg lg-add"></i>增字</span>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h3>批量裁决</h3>
+              <div class="batch-row">
+                <button type="button" id="batchProofBtn">全部采用校样</button>
+                <button type="button" id="batchOrigBtn">全部保留原稿</button>
+              </div>
+              <div class="divider"></div>
+              <label class="note-label">本次校记备注
+                <textarea id="proofNote" maxlength="200" placeholder="例：据第二校样改字二处"></textarea>
+              </label>
+              <button type="button" id="applyProofBtn" class="primary apply-btn">核对并落版应用</button>
+            </div>
+
+            <div class="panel">
+              <h3>历次校记</h3>
+              <div id="recordList" class="record-list"></div>
+            </div>
+          </aside>
+        </section>
+      </div>
     </main>
 
     <script src="app.js"></script>
