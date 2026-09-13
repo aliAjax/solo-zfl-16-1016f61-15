@@ -30,7 +30,8 @@ const defaultState = {
     pairs: [],
     filter: "all",
     note: "",
-    applied: false
+    applied: false,
+    stale: false // 原稿/校样/忽略空白改动后，旧对读结果失效
   },
   proofRecords: [],
   ui: { view: "typeset" }
@@ -268,6 +269,7 @@ function placeType(row, col, typeId = state.selectedTypeId) {
     state.placements.push({ row, col, typeId });
   }
   renderAll();
+  invalidateProofApplication();
 }
 
 function addType(event) {
@@ -522,6 +524,7 @@ function runCompare() {
   proof.startCol = Math.min(proof.startCol, cols - 1);
   proof.pairs = opsToPairs(alignChars(origUnits, revUnits));
   proof.applied = false;
+  proof.stale = false;
   proof.note = proof.note || "";
   recomputeSlots();
 }
@@ -559,7 +562,10 @@ function buildPlan() {
   state.proof.pairs.filter((pair) => !pair.applied).forEach((pair) => {
     if (pair.kind === "same") return; // 相同字仅作对齐参照，不属于本次改动格
     const desired = pairDesiredChar(pair);
-    if (pair.kind === "add" && pair.resolve !== "proof") return; // 不增
+    if (pair.kind === "add" && pair.resolve !== "proof") {
+      satisfied.push(pair); // 增字裁决为「不增」：版面无需改动，裁决即已落实
+      return;
+    }
     if (pair.kind === "del" && pair.resolve === "orig") {
       // 保留原稿：需把原稿字落到该格
       setOp(pair, pair.orig, false);
@@ -759,6 +765,11 @@ function renderStatus(plan) {
     el.className = "proof-status";
     return;
   }
+  if (proof.stale) {
+    el.textContent = "原稿或校样已改动，旧对读结果失效，请点击「开始对读」";
+    el.className = "proof-status warn";
+    return;
+  }
   if (proof.applied) {
     el.textContent = "本次校改已落版，校记已留存";
     el.className = "proof-status ok";
@@ -831,7 +842,11 @@ function renderPairList() {
   const { cols, rows } = getGrid();
   const capacity = cols * rows;
 
-  els.pairList.innerHTML = pairs
+  els.pairList.innerHTML =
+    (proof.stale
+      ? `<div class="stale-banner">原稿或校样已改动，以下为旧对读结果。请点击「开始对读」按当前内容重新对齐后再裁决、落版。</div>`
+      : "") +
+    pairs
     .map((pair) => {
       const isAdd = pair.kind === "add";
       const isDel = pair.kind === "del";
@@ -865,6 +880,8 @@ function renderPairList() {
       let actions = "";
       if (pair.kind === "same") {
         actions = `<span class="applied-tag">同字照排</span>`;
+      } else if (proof.stale) {
+        actions = `<span class="applied-tag">结果已失效</span>`;
       } else if (pair.applied) {
         actions = `<span class="applied-tag">已落版</span>`;
       } else {
@@ -882,12 +899,12 @@ function renderPairList() {
         }
       }
       const typeSelect = needsType
-        ? `<select class="pair-type-select" data-type-pair="${pair.id}" ${pair.applied ? "disabled" : ""}>
+        ? `<select class="pair-type-select" data-type-pair="${pair.id}" ${pair.applied || proof.stale ? "disabled" : ""}>
              ${typeOptions(desired, pair.typeChoice, existingType?.id)}
            </select>`
         : `<span class="pair-sub">&nbsp;</span>`;
       return `
-        <article class="pair-row kind-${pair.kind} ${pair.applied ? "applied" : ""}" data-pair-row="${pair.id}">
+        <article class="pair-row kind-${pair.kind} ${pair.applied ? "applied" : ""} ${proof.stale ? "stale" : ""}" data-pair-row="${pair.id}">
           <div class="pair-pos">
             <span class="kind-badge ${pair.kind}">${kindLabel[pair.kind]}</span>
             <span data-pos-label="${pair.id}">${posText}</span>
@@ -921,6 +938,13 @@ function renderPreflight(plan) {
     els.preflightList.innerHTML = `<p class="empty">对读并裁决差异后，落版前在此统一核对。</p>`;
     els.applyProofBtn.disabled = false;
     els.applyProofBtn.textContent = "核对并落版应用";
+    return;
+  }
+  if (state.proof.stale) {
+    els.preflightList.innerHTML = `
+      <div class="preflight-item block"><span class="pf-icon">!</span><span>原稿或校样已改动，当前对读结果已失效，不能据此落版。请先「开始对读」重新对齐。</span></div>`;
+    els.applyProofBtn.disabled = true;
+    els.applyProofBtn.textContent = "结果已失效，请重新对读";
     return;
   }
   if (state.proof.applied) {
@@ -979,28 +1003,30 @@ function renderProofBoard() {
   const overlay = new Map(); // key -> classes/glyph
   if (proof.pairs.length) {
     overlay.set(placementKey(proof.startRow, proof.startCol), { cls: "pf-start", glyph: null });
-    proof.pairs.forEach((pair) => {
-      if (pair.applied) return;
-      const pos = pairPos(pair);
-      if (!pos) return;
-      const key = placementKey(pos.row, pos.col);
-      let cls = "";
-      let glyph = null;
-      if (pair.kind === "same") {
-        cls = "pf-same";
-        glyph = pair.orig;
-      } else if (pair.kind === "sub") {
-        cls = "pf-sub";
-        glyph = pairDesiredChar(pair);
-      } else if (pair.kind === "del") {
-        cls = pair.resolve === "orig" ? "pf-sub" : "pf-del";
-        glyph = pair.orig;
-      } else if (pair.kind === "add" && pair.resolve === "proof") {
-        cls = "pf-add";
-        glyph = pair.rev;
-      }
-      if (cls) overlay.set(key, { cls, glyph, pairId: pair.id });
-    });
+    if (!proof.stale) {
+      proof.pairs.forEach((pair) => {
+        if (pair.applied) return;
+        const pos = pairPos(pair);
+        if (!pos) return;
+        const key = placementKey(pos.row, pos.col);
+        let cls = "";
+        let glyph = null;
+        if (pair.kind === "same") {
+          cls = "pf-same";
+          glyph = pair.orig;
+        } else if (pair.kind === "sub") {
+          cls = "pf-sub";
+          glyph = pairDesiredChar(pair);
+        } else if (pair.kind === "del") {
+          cls = pair.resolve === "orig" ? "pf-sub" : "pf-del";
+          glyph = pair.orig;
+        } else if (pair.kind === "add" && pair.resolve === "proof") {
+          cls = "pf-add";
+          glyph = pair.rev;
+        }
+        if (cls) overlay.set(key, { cls, glyph, pairId: pair.id });
+      });
+    }
   }
 
   const cells = [];
@@ -1089,20 +1115,32 @@ document.querySelectorAll(".tab-btn").forEach((tab) => {
   });
 });
 
+function markProofStale() {
+  if (!state.proof.pairs.length) {
+    saveState();
+    return;
+  }
+  state.proof.stale = true;
+  state.proof.applied = false;
+  pickingMode = null;
+  saveState();
+  if (!els.proofView.hidden) renderProofAll();
+}
+
 els.origText.addEventListener("input", () => {
   state.proof.origText = els.origText.value;
   els.origCount.textContent = `${toCharUnits(els.origText.value, els.ignoreSpace.checked).length}字`;
-  saveState();
+  markProofStale();
 });
 els.revText.addEventListener("input", () => {
   state.proof.revText = els.revText.value;
   els.revCount.textContent = `${toCharUnits(els.revText.value, els.ignoreSpace.checked).length}字`;
-  saveState();
+  markProofStale();
 });
 els.ignoreSpace.addEventListener("change", () => {
   state.proof.ignoreSpace = els.ignoreSpace.checked;
   renderProofInputs();
-  saveState();
+  markProofStale();
 });
 els.proofNote.addEventListener("input", () => {
   state.proof.note = els.proofNote.value;
@@ -1123,6 +1161,7 @@ els.compareBtn.addEventListener("click", () => {
 els.resetProofBtn.addEventListener("click", () => {
   state.proof.pairs = [];
   state.proof.applied = false;
+  state.proof.stale = false;
   pickingMode = null;
   els.compareHint.textContent = "对读结果已清空，可调整原稿/校样后重新对读。";
   renderProofAll();
@@ -1140,15 +1179,25 @@ els.proofStage.addEventListener("click", (event) => {
   const row = Number(cell.dataset.row);
   const col = Number(cell.dataset.col);
   if (pickingMode.type === "start") {
+    if (state.proof.startRow === row && state.proof.startCol === col) {
+      pickingMode = null;
+      return;
+    }
     state.proof.startRow = row;
     state.proof.startCol = col;
-    // 用户改起始格后，清掉增字旧目标，避免错位
+    // 起始格移动后所有槽位重排，原落版结果失效；增字旧目标一并清掉
     state.proof.pairs.forEach((p) => {
+      p.applied = false;
       if (p.kind === "add") p.targetPos = null;
     });
+    state.proof.applied = false;
   } else {
     const pair = state.proof.pairs.find((p) => p.id === pickingMode.pairId);
-    if (pair) pair.targetPos = { row, col };
+    if (pair) {
+      pair.targetPos = { row, col };
+      pair.applied = false; // 重新选格后该增字需重新落版
+      state.proof.applied = false;
+    }
   }
   pickingMode = null;
   markDecisionsUnapplied();
@@ -1156,6 +1205,7 @@ els.proofStage.addEventListener("click", (event) => {
 });
 
 els.pairList.addEventListener("click", (event) => {
+  if (state.proof.stale) return;
   const decideBtn = event.target.closest("[data-decide]");
   const pickBtn = event.target.closest("[data-pick-target]");
   if (decideBtn) {
@@ -1219,6 +1269,7 @@ function syncFilterButtons() {
 }
 
 els.batchProofBtn.addEventListener("click", () => {
+  if (state.proof.stale) return;
   state.proof.pairs.forEach((p) => {
     if (p.kind !== "same") {
       if (p.resolve !== "proof") p.applied = false;
@@ -1231,6 +1282,7 @@ els.batchProofBtn.addEventListener("click", () => {
   renderProofAll();
 });
 els.batchOrigBtn.addEventListener("click", () => {
+  if (state.proof.stale) return;
   state.proof.pairs.forEach((p) => {
     if (p.kind !== "same") {
       if (p.resolve !== "orig") p.applied = false;
@@ -1254,6 +1306,10 @@ els.applyProofBtn.addEventListener("click", () => {
     els.compareHint.textContent = "请先对读，再落版应用。";
     return;
   }
+  if (state.proof.stale) {
+    els.compareHint.textContent = "原稿或校样已改动，旧结果失效，请先「开始对读」重新对齐。";
+    return;
+  }
   const result = applyProof();
   if (!result.ok) {
     const { problems } = buildPlan();
@@ -1269,16 +1325,29 @@ els.applyProofBtn.addEventListener("click", () => {
   renderProofAll();
 });
 
+// 版面在校字台之外被改动（手动落字、清空、载入草稿、删字模、换纸张等）：
+// 已落版标记立即失效，回到「待核对」状态，结果仍可查看但必须重新核对。
+// 注意：不清 stale——文本失效只能由「开始对读」解除。
+function invalidateProofApplication() {
+  if (!state.proof.pairs.length) return;
+  state.proof.applied = false;
+  state.proof.pairs.forEach((p) => {
+    p.applied = false;
+  });
+  pickingMode = null;
+  saveState();
+  if (!els.proofView.hidden) renderProofAll();
+}
+
 function syncProofAfterBoardChange() {
-  if (!els.proofView.hidden && state.proof.pairs.length) {
+  if (state.proof.pairs.length) {
     const { cols, rows } = getGrid();
     state.proof.startRow = Math.min(state.proof.startRow, rows - 1);
     state.proof.startCol = Math.min(state.proof.startCol, cols - 1);
     state.proof.pairs.forEach((p) => {
       if (p.targetPos && (p.targetPos.row >= rows || p.targetPos.col >= cols)) p.targetPos = null;
     });
-    state.proof.applied = false;
-    renderProofAll();
+    invalidateProofApplication();
   } else {
     saveState();
   }
@@ -1295,7 +1364,7 @@ els.paperSize.addEventListener("change", () => {
 els.flowMode.addEventListener("change", () => {
   state.settings.flowMode = els.flowMode.value;
   renderAll();
-  syncProofAfterBoardChange();
+  if (!els.proofView.hidden) renderProofBoard();
 });
 
 els.gridGap.addEventListener("input", () => {
@@ -1317,18 +1386,20 @@ els.exportBtn.addEventListener("click", exportPreview);
 els.clearBoardBtn.addEventListener("click", () => {
   state.placements = [];
   renderAll();
-  if (!els.proofView.hidden) renderProofAll();
+  invalidateProofApplication();
 });
 
 els.typeList.addEventListener("click", (event) => {
   const deleteButton = event.target.closest("[data-delete-type]");
   if (deleteButton) {
     const typeId = deleteButton.dataset.deleteType;
+    const wasPlaced = state.placements.some((item) => item.typeId === typeId);
+    const wasChosen = state.proof.pairs.some((item) => item.typeChoice === typeId);
     state.inventory = state.inventory.filter((item) => item.id !== typeId);
     state.placements = state.placements.filter((item) => item.typeId !== typeId);
     if (state.selectedTypeId === typeId) state.selectedTypeId = state.inventory[0]?.id || null;
     renderAll();
-    if (!els.proofView.hidden) renderProofAll();
+    if (wasPlaced || wasChosen) invalidateProofApplication();
     return;
   }
   const card = event.target.closest("[data-type-id]");
@@ -1369,7 +1440,7 @@ els.draftList.addEventListener("click", (event) => {
     state.settings = structuredClone(draft.settings);
     state.placements = structuredClone(draft.placements);
     renderAll();
-    if (!els.proofView.hidden) renderProofAll();
+    invalidateProofApplication();
   }
   if (deleteButton) {
     state.drafts = state.drafts.filter((item) => item.id !== deleteButton.dataset.deleteDraft);

@@ -607,6 +607,21 @@ h3 {
 .pair-row.kind-del { border-left: 4px solid var(--red); }
 .pair-row.applied { opacity: 0.75; }
 
+.pair-row.stale {
+  opacity: 0.55;
+  filter: grayscale(0.35);
+}
+
+.stale-banner {
+  border: 1px solid var(--red);
+  border-radius: 8px;
+  background: rgba(164, 64, 55, 0.08);
+  color: var(--red);
+  font-weight: 800;
+  font-size: 13px;
+  padding: 10px 12px;
+}
+
 .pair-pos {
   display: grid;
   align-content: center;
